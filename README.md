@@ -19,7 +19,7 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Copy `.env.example` to `.env` and fill in your Qdrant and LLM credentials.
+Copy `.env.example` to `.env` and fill in your credentials. For Qdrant, create a free cluster at https://cloud.qdrant.io and copy the cluster URL and API key into your `.env` file.
 
 If using Ollama locally:
 ```bash
