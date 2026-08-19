@@ -10,7 +10,7 @@ logger = logging.getLogger("journal-ai")
 _bm25_cache: dict[str, BM25Okapi] = {}
 _entry_map_cache: dict[str, dict[str, str]] = {}
 
-RRF_K = 60
+RRF_K = 10
 
 
 def _tokenize(text: str) -> list[str]:
