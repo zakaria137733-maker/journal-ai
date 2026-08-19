@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Journal AI - Entries</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="topbar">
+        <h2>Journal</h2>
+        <nav>
+            <a href="/static/chat.html">Chat</a>
+            <a href="#" onclick="logout()">Logout</a>
+        </nav>
+    </div>
+
+    <div class="main-content">
+        <div class="create-box">
+            <textarea id="new-entry" placeholder="What's on your mind today?"></textarea>
+            <div class="actions">
+                <button class="btn" onclick="createEntry()">Save Entry</button>
+            </div>
+        </div>
+
+        <div class="search-box">
+            <input type="text" id="search-input" placeholder="Search entries..." onkeydown="if(event.key==='Enter')searchEntries()">
+            <button class="btn btn-small" onclick="searchEntries()">Search</button>
+            <button class="btn btn-small btn-secondary" onclick="clearSearch()">Clear</button>
+        </div>
+
+        <div class="entry-list" id="entry-list">
+            <div class="loading">Loading entries...</div>
+        </div>
+
+        <div class="pagination" id="pagination" style="display:none">
+            <button class="btn btn-small btn-secondary" id="load-more-btn" onclick="loadMore()">Load more</button>
+        </div>
+    </div>
+
+    <script>
+        const API = '';
+        const token = localStorage.getItem('token');
+        if (!token) window.location.href = '/static/index.html';
+
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        };
+
+        let currentOffset = 0;
+        let currentSearch = '';
+        const PAGE_SIZE = 20;
+
+        function logout() {
+            localStorage.removeItem('token');
+            window.location.href = '/static/index.html';
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function formatDate(dateStr) {
+            return new Date(dateStr).toLocaleDateString('en-US', {
+                weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+                hour: '2-digit', minute: '2-digit'
+            });
+        }
+
+        async function loadEntries(reset = true) {
+            if (reset) {
+                currentOffset = 0;
+                currentSearch = '';
+                document.getElementById('search-input').value = '';
+            }
+            try {
+                const params = new URLSearchParams({ limit: PAGE_SIZE, offset: currentOffset });
+                if (currentSearch) params.set('search', currentSearch);
+                const res = await fetch(`${API}/api/entries?${params}`, { headers });
+                if (res.status === 401) { logout(); return; }
+                const data = await res.json();
+                const list = document.getElementById('entry-list');
+                const pagination = document.getElementById('pagination');
+                const loadMoreBtn = document.getElementById('load-more-btn');
+
+                if (reset) list.innerHTML = '';
+
+                if (data.entries.length === 0 && currentOffset === 0) {
+                    list.innerHTML = '<div class="empty-state">No entries yet. Start writing above!</div>';
+                    pagination.style.display = 'none';
+                    return;
+                }
+
+                const html = data.entries.map(e => `
+                    <div class="entry-card" id="entry-${e.id}">
+                        <div class="meta">${formatDate(e.created_at)}</div>
+                        <div class="content" id="content-${e.id}">${escapeHtml(e.content)}</div>
+                        <textarea class="edit-textarea" id="edit-${e.id}" style="display:none">${escapeHtml(e.content)}</textarea>
+                        <div class="entry-actions">
+                            <button class="delete-btn" onclick="deleteEntry('${e.id}')">Delete</button>
+                            <button class="edit-btn" id="edit-btn-${e.id}" onclick="toggleEdit('${e.id}')">Edit</button>
+                        </div>
+                    </div>
+                `).join('');
+
+                if (reset) list.innerHTML = html;
+                else list.insertAdjacentHTML('beforeend', html);
+
+                currentOffset += data.entries.length;
+                pagination.style.display = currentOffset < data.total ? 'block' : 'none';
+                loadMoreBtn.textContent = currentOffset < data.total
+                    ? `Load more (${currentOffset} of ${data.total})`
+                    : `All ${data.total} entries loaded`;
+            } catch (err) {
+                document.getElementById('entry-list').innerHTML = '<div class="error" style="display:block">Failed to load entries</div>';
+            }
+        }
+
+        function searchEntries() {
+            const q = document.getElementById('search-input').value.trim();
+            if (!q) return loadEntries(true);
+            currentSearch = q;
+            loadEntries(true);
+        }
+
+        function clearSearch() {
+            document.getElementById('search-input').value = '';
+            currentSearch = '';
+            loadEntries(true);
+        }
+
+        function loadMore() {
+            loadEntries(false);
+        }
+
+        async function createEntry() {
+            const textarea = document.getElementById('new-entry');
+            const content = textarea.value.trim();
+            if (!content) return;
+
+            try {
+                const res = await fetch(`${API}/api/entries`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ content })
+                });
+                if (res.status === 401) { logout(); return; }
+                if (!res.ok) throw new Error('Failed to save');
+                textarea.value = '';
+                loadEntries(true);
+            } catch (err) {
+                alert('Failed to save entry');
+            }
+        }
+
+        function toggleEdit(id) {
+            const content = document.getElementById(`content-${id}`);
+            const editArea = document.getElementById(`edit-${id}`);
+            const btn = document.getElementById(`edit-btn-${id}`);
+
+            if (editArea.style.display === 'none') {
+                content.style.display = 'none';
+                editArea.style.display = 'block';
+                btn.textContent = 'Save';
+                btn.classList.add('btn-save');
+            } else {
+                saveEdit(id);
+            }
+        }
+
+        async function saveEdit(id) {
+            const editArea = document.getElementById(`edit-${id}`);
+            const content = editArea.value.trim();
+            if (!content) return;
+
+            try {
+                const res = await fetch(`${API}/api/entries/${id}`, {
+                    method: 'PUT',
+                    headers,
+                    body: JSON.stringify({ content })
+                });
+                if (res.status === 401) { logout(); return; }
+                if (!res.ok) throw new Error('Failed to update');
+                loadEntries(true);
+            } catch (err) {
+                alert('Failed to update entry');
+            }
+        }
+
+        async function deleteEntry(id) {
+            if (!confirm('Delete this entry?')) return;
+            try {
+                await fetch(`${API}/api/entries/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                loadEntries(true);
+            } catch (err) {
+                alert('Failed to delete');
+            }
+        }
+
+        loadEntries();
+    </script>
+</body>
+</html>

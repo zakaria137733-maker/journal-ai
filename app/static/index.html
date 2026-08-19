@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Journal AI - Login</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Journal AI</h1>
+        <p class="subtitle">Your private AI-powered journal</p>
+
+        <div id="login-form">
+            <div class="form-group">
+                <label>Username</label>
+                <input type="text" id="username" autocomplete="username">
+            </div>
+            <div class="form-group">
+                <label>Password</label>
+                <input type="password" id="password" autocomplete="current-password">
+            </div>
+            <div class="error" id="error-msg"></div>
+            <button class="btn" onclick="login()">Log In</button>
+            <button class="btn btn-secondary" onclick="signup()">Create Account</button>
+        </div>
+    </div>
+
+    <script>
+        if (localStorage.getItem('token')) {
+            window.location.href = '/static/journal.html';
+        }
+
+        async function login() {
+            await authRequest('/api/auth/login');
+        }
+
+        async function signup() {
+            await authRequest('/api/auth/signup', true);
+        }
+
+        async function authRequest(url, isSignup = false) {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const errorEl = document.getElementById('error-msg');
+
+            if (!username || !password) {
+                errorEl.textContent = 'Please fill in all fields';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            try {
+                const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(data.detail || 'Request failed');
+                }
+
+                localStorage.setItem('token', data.access_token);
+                window.location.href = '/static/journal.html';
+            } catch (err) {
+                errorEl.textContent = err.message;
+                errorEl.style.display = 'block';
+            }
+        }
+    </script>
+</body>
+</html>

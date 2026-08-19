@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Journal AI - Chat</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+</head>
+<body>
+    <div class="topbar">
+        <h2>Chat</h2>
+        <nav>
+            <a href="/static/journal.html">Journal</a>
+            <a href="#" onclick="logout()">Logout</a>
+        </nav>
+    </div>
+
+    <div class="chat-container">
+        <div class="messages" id="messages">
+            <div class="empty-state">Ask me anything about your journal entries.</div>
+        </div>
+
+        <div class="input-bar">
+            <input type="text" id="chat-input" placeholder="Ask about your entries..." onkeydown="if(event.key==='Enter')sendMsg()">
+            <button class="btn" onclick="sendMsg()">Send</button>
+        </div>
+    </div>
+
+    <script>
+        const API = '';
+        const token = localStorage.getItem('token');
+        if (!token) window.location.href = '/static/index.html';
+
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        };
+
+        const messagesEl = document.getElementById('messages');
+        const inputEl = document.getElementById('chat-input');
+        let messages = [];
+        let chatHistory = [];
+
+        marked.setOptions({
+            highlight: function(code, lang) {
+                if (lang && hljs.getLanguage(lang)) {
+                    return hljs.highlight(code, { language: lang }).value;
+                }
+                return hljs.highlightAuto(code).value;
+            },
+            breaks: true
+        });
+
+        function logout() {
+            localStorage.removeItem('token');
+            window.location.href = '/static/index.html';
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str;
+            return div.innerHTML;
+        }
+
+        function renderMarkdown(text) {
+            return marked.parse(text);
+        }
+
+        function renderMessages() {
+            if (messages.length === 0) {
+                messagesEl.innerHTML = '<div class="empty-state">Ask me anything about your journal entries.</div>';
+                return;
+            }
+            messagesEl.innerHTML = messages.map(m => {
+                if (m.role === 'user') {
+                    return `<div class="message user">${escapeHtml(m.content)}</div>`;
+                }
+                let sourcesHtml = '';
+                if (m.sources && m.sources.length > 0) {
+                    sourcesHtml = '<div class="sources">' +
+                        m.sources.map(s => `<span>Referenced: ${s.date} (relevance: ${s.score.toFixed(2)})</span>`).join('') +
+                        '</div>';
+                }
+                if (m.streaming) {
+                    return `<div class="message assistant"><div class="spinner"></div>${sourcesHtml}</div>`;
+                }
+                return `<div class="message assistant markdown-body">${renderMarkdown(m.content)}${sourcesHtml}</div>`;
+            }).join('');
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        async function sendMsg() {
+            const text = inputEl.value.trim();
+            if (!text) return;
+
+            inputEl.value = '';
+            messages.push({ role: 'user', content: text });
+            chatHistory.push({ role: 'user', content: text });
+            renderMessages();
+
+            messages.push({ role: 'assistant', content: '', sources: [], streaming: true });
+            renderMessages();
+
+            const msgIndex = messages.length - 1;
+
+            try {
+                const res = await fetch(`${API}/api/chat/stream`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify({ message: text, history: chatHistory.slice(-40) })
+                });
+                if (res.status === 401) { logout(); return; }
+
+                if (!res.ok) {
+                    const errData = await res.json().catch(() => ({}));
+                    messages[msgIndex] = {
+                        role: 'assistant',
+                        content: errData.detail || 'Failed to get response.',
+                        sources: [],
+                        streaming: false
+                    };
+                    renderMessages();
+                    return;
+                }
+
+                const reader = res.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let content = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.startsWith('data: ')) continue;
+                        const dataStr = line.slice(6).trim();
+                        if (dataStr === '[DONE]') break;
+
+                        try {
+                            const data = JSON.parse(dataStr);
+                            if (data.sources) {
+                                messages[msgIndex].sources = data.sources;
+                            }
+                            if (data.content) {
+                                content += data.content;
+                                messages[msgIndex].content = content;
+                                messages[msgIndex].streaming = false;
+                                renderMessages();
+                            }
+                        } catch (e) {}
+                    }
+                }
+
+                if (!content) {
+                    messages[msgIndex].content = 'No response received.';
+                    messages[msgIndex].streaming = false;
+                }
+                chatHistory.push({ role: 'assistant', content: messages[msgIndex].content });
+            } catch (err) {
+                messages[msgIndex] = {
+                    role: 'assistant',
+                    content: 'Failed to get response. Is the LLM server running?',
+                    sources: [],
+                    streaming: false
+                };
+            }
+            renderMessages();
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+*.pyc
+.env
+.env.txt
+journal.db
+*.egg-info/
+server.log
+server_err.log
+server.log.*.1
