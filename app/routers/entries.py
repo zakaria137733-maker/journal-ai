@@ -7,7 +7,7 @@ from app.database import get_db
 from app.models import User, JournalEntry
 from app.schemas import EntryCreate, EntryUpdate, EntryResponse, EntryListResponse
 from app.auth import get_current_user
-from app.services.embeddings import embed_text
+from app.services.embeddings import chunk_text, embed_all
 from app.services.vector_store import upsert_entry, delete_entry
 from app.services.hybrid_retrieval import invalidate_bm25_cache
 
@@ -52,10 +52,11 @@ async def create_entry(
     await db.commit()
     await db.refresh(entry)
 
-    embedding = await embed_text(body.content)
-    await upsert_entry(entry.id, user.id, body.content, embedding)
+    chunks = chunk_text(body.content)
+    embeddings = await embed_all(chunks)
+    await upsert_entry(entry.id, user.id, chunks, embeddings)
     invalidate_bm25_cache(user.id)
-    logger.info("Created entry %s — embedded + synced to Qdrant", entry.id)
+    logger.info("Created entry %s — %d chunks embedded + synced to Qdrant", entry.id, len(chunks))
 
     return entry
 
@@ -97,10 +98,11 @@ async def update_entry(
     await db.commit()
     await db.refresh(entry)
 
-    embedding = await embed_text(body.content)
-    await upsert_entry(entry.id, user.id, body.content, embedding)
+    chunks = chunk_text(body.content)
+    embeddings = await embed_all(chunks)
+    await upsert_entry(entry.id, user.id, chunks, embeddings)
     invalidate_bm25_cache(user.id)
-    logger.info("Updated entry %s — re-embedded + synced to Qdrant", entry.id)
+    logger.info("Updated entry %s — %d chunks re-embedded + synced to Qdrant", entry.id, len(chunks))
 
     return entry
 

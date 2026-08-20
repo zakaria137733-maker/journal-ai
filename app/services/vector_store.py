@@ -11,6 +11,7 @@ from qdrant_client.models import (
     MatchValue,
     PayloadSchemaType,
     PointIdsList,
+    DeleteBy,
 )
 from app.config import get_settings
 
@@ -54,25 +55,33 @@ async def ensure_collection():
     await asyncio.to_thread(_ensure_collection_sync)
 
 
-def _upsert_entry_sync(entry_id: str, user_id: str, text: str, embedding: list[float]):
+def _upsert_entry_sync(entry_id: str, user_id: str, chunks: list[str], embeddings: list[list[float]]):
     client = get_client()
     settings = get_settings()
-    point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, entry_id))
-    client.upsert(
-        collection_name=settings.QDRANT_COLLECTION,
-        points=[
+    points = []
+    for i, (chunk, embedding) in enumerate(zip(chunks, embeddings)):
+        point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, f"{entry_id}:{i}"))
+        points.append(
             PointStruct(
                 id=point_id,
                 vector=embedding,
-                payload={"entry_id": entry_id, "user_id": user_id, "text": text},
+                payload={
+                    "entry_id": entry_id,
+                    "user_id": user_id,
+                    "text": chunk,
+                    "chunk_index": i,
+                },
             )
-        ],
+        )
+    client.upsert(
+        collection_name=settings.QDRANT_COLLECTION,
+        points=points,
     )
-    logger.info("Upserted point %s (entry %s) to Qdrant", point_id, entry_id)
+    logger.info("Upserted %d chunks for entry %s to Qdrant", len(points), entry_id)
 
 
-async def upsert_entry(entry_id: str, user_id: str, text: str, embedding: list[float]):
-    await asyncio.to_thread(_upsert_entry_sync, entry_id, user_id, text, embedding)
+async def upsert_entry(entry_id: str, user_id: str, chunks: list[str], embeddings: list[list[float]]):
+    await asyncio.to_thread(_upsert_entry_sync, entry_id, user_id, chunks, embeddings)
 
 
 def _search_similar_sync(user_id: str, query_embedding: list[float], top_k: int = 5) -> list[dict]:
@@ -130,12 +139,15 @@ async def fetch_user_points(user_id: str) -> list[dict]:
 def _delete_entry_sync(entry_id: str):
     client = get_client()
     settings = get_settings()
-    point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, entry_id))
     client.delete(
         collection_name=settings.QDRANT_COLLECTION,
-        points_selector=PointIdsList(points=[point_id]),
+        points_selector=DeleteBy(
+            filter=Filter(
+                must=[FieldCondition(key="entry_id", match=MatchValue(value=entry_id))]
+            )
+        ),
     )
-    logger.info("Deleted point %s (entry %s) from Qdrant", point_id, entry_id)
+    logger.info("Deleted all chunks for entry %s from Qdrant", entry_id)
 
 
 async def delete_entry(entry_id: str):

@@ -65,12 +65,7 @@ Embeddings are done locally with sentence-transformers (all-MiniLM-L6-v2). Every
 
 ## Chunking Strategy
 
-Each journal entry is stored as a single embedding vector. This works well
-for short entries but has a known limitation: long entries covering multiple
-topics produce averaged vectors that may retrieve poorly for specific
-sub-topics. A production improvement would be sentence-level chunking with
-parent document retrieval — storing multiple vectors per entry and
-re-ranking retrieved chunks before passing to the LLM.
+Entries are split into overlapping sentence-level chunks (max 500 chars, 100 char overlap). Each chunk gets its own embedding vector stored in Qdrant alongside the entry ID. On retrieval, multiple chunks from the same entry can contribute to its RRF score, so entries with multiple relevant sections rank higher. Short entries that fit in one chunk behave exactly like before — single vector, same retrieval path.
 
 ## Multi-tenancy
 
