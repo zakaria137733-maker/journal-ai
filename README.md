@@ -4,7 +4,7 @@ Private journal app with a chat feature that answers questions about your past e
 
 Write entries about your day, your workouts, your meals — whatever. Then ask things like "How much protein did I eat this week?" or "What was bugging me last Tuesday?" and it pulls relevant entries and answers from your own writing.
 
-[Video walkthrough](https://drive.google.com/file/d/1gbrsHdX170qX6bh8OUsI92D5QklXjHkP/view)
+[Watch the demo on Loom](https://www.loom.com/share/cf885ffeee774cacb106a51323f34e34)
 
 ## Setup
 
@@ -42,17 +42,20 @@ docker compose up --build
 
 The compose file mounts `journal.db` into the container so data persists across restarts.
 
-## LLM Providers
+## LLM Abstraction Layer
 
-Both Ollama and OpenRouter implement the OpenAI `/v1/chat/completions` spec, so the app talks to them the same way. Swapping between them means changing three env vars — no code changes needed:
+Both Ollama and OpenRouter implement the OpenAI REST API spec, which means
+the same `openai.OpenAI` client works for both — only the `base_url`,
+`api_key`, and `model` change. These three values are read from environment
+variables, so switching providers requires changing three lines in `.env`
+with zero code changes.
 
-| Variable | Ollama (default) | OpenRouter |
-|---|---|---|
-| `LLM_BASE_URL` | `http://localhost:11434/v1` | `https://openrouter.ai/api/v1` |
-| `LLM_API_KEY` | `ollama` | your OpenRouter key |
-| `LLM_MODEL` | `mistral` | `meta-llama/llama-3.1-8b-instruct:free` |
-
-Both configurations are in `.env.example` — just uncomment the block you want. The `LLMClient` in `app/services/llm.py` handles the rest.
+To use OpenRouter instead of Ollama, update your `.env`:
+```
+LLM_BASE_URL=https://openrouter.ai/api/v1
+LLM_API_KEY=your-openrouter-api-key
+LLM_MODEL=meta-llama/llama-3.1-8b-instruct:free
+```
 
 ## How the Search Works
 
@@ -62,7 +65,12 @@ Embeddings are done locally with sentence-transformers (all-MiniLM-L6-v2). Every
 
 ## Chunking Strategy
 
-Each journal entry is stored as a single vector embedding. The full entry text goes into Qdrant as one point alongside the embedding. This works well for typical journal-length entries (a paragraph to a page), but very long entries may lose some retrieval granularity since the embedding has to represent the entire text as one vector. For a production system you'd probably want to chunk long entries into overlapping segments, but for personal journal entries this keeps things simple without a meaningful hit to retrieval quality.
+Each journal entry is stored as a single embedding vector. This works well
+for short entries but has a known limitation: long entries covering multiple
+topics produce averaged vectors that may retrieve poorly for specific
+sub-topics. A production improvement would be sentence-level chunking with
+parent document retrieval — storing multiple vectors per entry and
+re-ranking retrieved chunks before passing to the LLM.
 
 ## Multi-tenancy
 
