@@ -11,7 +11,7 @@ from qdrant_client.models import (
     MatchValue,
     PayloadSchemaType,
     PointIdsList,
-    DeleteBy,
+    FilterSelector,
 )
 from app.config import get_settings
 
@@ -141,7 +141,7 @@ def _delete_entry_sync(entry_id: str):
     settings = get_settings()
     client.delete(
         collection_name=settings.QDRANT_COLLECTION,
-        points_selector=DeleteBy(
+        points_selector=FilterSelector(
             filter=Filter(
                 must=[FieldCondition(key="entry_id", match=MatchValue(value=entry_id))]
             )
